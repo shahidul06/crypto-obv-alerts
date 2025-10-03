@@ -82,15 +82,10 @@ def check_crossover(df, symbol, timeframe):
         
     return False
 
-
 def main():
     """মূল অ্যালার্ট চেকার ফাংশন"""
     try:
         exchange = ccxt.binance()
-        
-      
-      
-        # ------------------------------------------------------------------
         
         print(f"ট্রেডিং পেয়ার্স: {SYMBOL_PAIRS}, টাইমফ্রেম: {TIMEFRAMES}")
         
@@ -104,6 +99,14 @@ def main():
                     df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
                     
                     df = calculate_obv_ma(df)
+                    
+                    # --- NaN ফিক্স: NaN ভ্যালু বাদ দেওয়া হচ্ছে ---
+                    df.dropna(inplace=True)
+                    # -------------------------------------------
+                    
+                    if len(df) < 2:
+                        continue
+                        
                     check_crossover(df, symbol, tf)
                     
                     time.sleep(0.5) 
