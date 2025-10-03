@@ -82,19 +82,14 @@ def check_crossover(df, symbol, timeframe):
         
     return False
 
-def send_manual_test_notification():
-    """ম্যানুয়ালি একটি টেস্ট নোটিফিকেশন পাঠায়"""
-    test_title = "✅ GitHub Actions: Pushbullet টেস্ট সফল"
-    test_body = "অভিনন্দন! আপনার Pushbullet এবং GitHub সংযোগ ঠিক আছে। এখন ট্রেডিং অ্যালার্ট সিস্টেম চালু হতে পারে।"
-    send_pushbullet_notification(test_title, test_body)
 
 def main():
     """মূল অ্যালার্ট চেকার ফাংশন"""
     try:
         exchange = ccxt.binance()
         
-        # --- TEST NOTIFICATION CALL (পরীক্ষা শেষে এই লাইনটি মুছে দিন) ---
-        send_manual_test_notification() 
+      
+      
         # ------------------------------------------------------------------
         
         print(f"ট্রেডিং পেয়ার্স: {SYMBOL_PAIRS}, টাইমফ্রেম: {TIMEFRAMES}")
