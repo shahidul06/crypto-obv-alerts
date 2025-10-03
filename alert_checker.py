@@ -60,12 +60,15 @@ def calculate_obv_ma(dataframe):
 def check_crossover(df, symbol, timeframe):
     """OBV এবং MA_OBV_30 ক্রসওভার চেক করে নোটিফিকেশন পাঠায়"""
     
+    # নিশ্চিত করতে হবে ডেটা যথেষ্ট আছে 
+    if len(df) < 2:
+        return False
+        
     last = df.iloc[-1]
     prev = df.iloc[-2]
     
     alert_title = f"[🎯 ALERT - {symbol} - {timeframe}]"
-    alert_body = ""
-
+    
     # ক্রস আপ (Bullish Crossover) চেক
     if prev['OBV'] < prev['MA_OBV_30'] and last['OBV'] > last['MA_OBV_30']:
         alert_body = f"🚀 Bullish Crossover (ক্রস আপ)!\nবর্তমান OBV: {last['OBV']:.2f}, MA_OBV_30: {last['MA_OBV_30']:.2f}"
@@ -91,8 +94,8 @@ def main():
     try:
         exchange = ccxt.binance()
         
-        # --- টেস্ট নোটিফিকেশন (পরীক্ষা শেষে এই লাইনটি মুছে দিতে পারেন) ---
-        send_manual_test_notification()
+        # --- TEST NOTIFICATION CALL (পরীক্ষা শেষে এই লাইনটি মুছে দিন) ---
+        send_manual_test_notification() 
         # -----------------------------------------------------------------
         
         print(f"ট্রেডিং পেয়ার্স: {SYMBOL_PAIRS}, টাইমফ্রেম: {TIMEFRAMES}")
