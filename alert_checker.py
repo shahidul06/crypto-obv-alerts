@@ -86,7 +86,7 @@ def main():
         exchange = ccxt.binance()
 
         def main():
-    """মূল অ্যালার্ট চেকার ফাংশন"""
+            """মূল অ্যালার্ট চেকার ফাংশন"""
     try:
         # ccxt এর মাধ্যমে Binance এক্সচেঞ্জ কানেক্ট করা
         exchange = ccxt.binance()
