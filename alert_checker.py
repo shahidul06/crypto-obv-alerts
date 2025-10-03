@@ -4,7 +4,7 @@ import requests
 import os
 import time
 
-# --- কনফিগারেশন: এই ভ্যালুগুলো কোডে পরিবর্তন করার প্রয়োজন নেই ---
+# --- কনফিগারেশন: এই ভ্যালুগুলো কোডে পরিবর্তন করার প্রয়োজন নেই ---
 PUSHBULLET_TOKEN = os.environ.get('PUSHBULLET_TOKEN')
 MA_PERIOD = 30 
 SYMBOL_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']
@@ -12,9 +12,9 @@ TIMEFRAMES = ['5m', '10m', '15m', '30m', '1h']
 # -----------------------------------------------------------------
 
 def send_pushbullet_notification(title, body):
-    """Pushbullet এর মাধ্যমে নোটিফিকেশন পাঠানো হয়"""
+    """Pushbullet এর মাধ্যমে নোটিফিকেশন পাঠানো হয়"""
     if not PUSHBULLET_TOKEN:
-        print("Pushbullet টোকেন সেট করা নেই। নোটিফিকেশন পাঠানো সম্ভব নয়।")
+        print("Pushbullet টোকেন সেট করা নেই। নোটিফিকেশন পাঠানো সম্ভব নয়।")
         return
 
     url = "https://api.pushbullet.com/v2/pushes"
@@ -58,7 +58,7 @@ def calculate_obv_ma(dataframe):
     return dataframe
 
 def check_crossover(df, symbol, timeframe):
-    """OBV এবং MA_OBV_30 ক্রসওভার চেক করে নোটিফিকেশন পাঠায়"""
+    """OBV এবং MA_OBV_30 ক্রসওভার চেক করে নোটিফিকেশন পাঠায়"""
     
     last = df.iloc[-1]
     prev = df.iloc[-2]
@@ -80,23 +80,22 @@ def check_crossover(df, symbol, timeframe):
         
     return False
 
+def send_manual_test_notification():
+    """ম্যানুয়ালি একটি টেস্ট নোটিফিকেশন পাঠায়"""
+    test_title = "✅ GitHub Actions: Pushbullet টেস্ট সফল"
+    test_body = "অভিনন্দন! আপনার Pushbullet এবং GitHub সংযোগ ঠিক আছে। এখন ট্রেডিং অ্যালার্ট সিস্টেম চালু হতে পারে।"
+    send_pushbullet_notification(test_title, test_body)
+
 def main():
     """মূল অ্যালার্ট চেকার ফাংশন"""
     try:
         exchange = ccxt.binance()
-
-        def main():
-            """মূল অ্যালার্ট চেকার ফাংশন"""
-    try:
-        # ccxt এর মাধ্যমে Binance এক্সচেঞ্জ কানেক্ট করা
-        exchange = ccxt.binance()
         
-        # --- নতুন টেস্ট নোটিফিকেশন ফাংশনটি যোগ করা হয়েছে ---
+        # --- টেস্ট নোটিফিকেশন (পরীক্ষা শেষে এই লাইনটি মুছে দিতে পারেন) ---
         send_manual_test_notification()
-        # ----------------------------------------------------
+        # -----------------------------------------------------------------
         
         print(f"ট্রেডিং পেয়ার্স: {SYMBOL_PAIRS}, টাইমফ্রেম: {TIMEFRAMES}")
-        # ... বাকি কোড একই থাকবে ...
         
         for symbol in SYMBOL_PAIRS:
             for tf in TIMEFRAMES:
@@ -117,11 +116,6 @@ def main():
 
     except Exception as e:
         print(f"এক্সচেঞ্জ কানেকশন বা প্রধান ত্রুটি: {e}")
-def send_manual_test_notification():
-    """ম্যানুয়ালি একটি টেস্ট নোটিফিকেশন পাঠায়"""
-    test_title = "✅ GitHub Actions: Pushbullet টেস্ট সফল"
-    test_body = "অভিনন্দন! আপনার Pushbullet এবং GitHub সংযোগ ঠিক আছে। এখন ট্রেডিং অ্যালার্ট সিস্টেম চালু হতে পারে।"
-    send_pushbullet_notification(test_title, test_body)
     
 if __name__ == "__main__":
     main()
