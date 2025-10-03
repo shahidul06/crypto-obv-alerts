@@ -4,7 +4,7 @@ import requests
 import os
 import time
 
-# --- কনফিগারেশন: এই ভ্যালুগুলো কোডে পরিবর্তন করার প্রয়োজন নেই ---
+# --- কনফিগারেশন: এই ভ্যালুগুলো কোডে পরিবর্তন করার প্রয়োজন নেই ---
 PUSHBULLET_TOKEN = os.environ.get('PUSHBULLET_TOKEN')
 MA_PERIOD = 30 
 SYMBOL_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']
@@ -12,9 +12,9 @@ TIMEFRAMES = ['5m', '10m', '15m', '30m', '1h']
 # -----------------------------------------------------------------
 
 def send_pushbullet_notification(title, body):
-    """Pushbullet এর মাধ্যমে নোটিফিকেশন পাঠানো হয়"""
+    """Pushbullet এর মাধ্যমে নোটিফিকেশন পাঠানো হয়"""
     if not PUSHBULLET_TOKEN:
-        print("Pushbullet টোকেন সেট করা নেই। নোটিফিকেশন পাঠানো সম্ভব নয়।")
+        print("Pushbullet টোকেন সেট করা নেই। নোটিফিকেশন পাঠানো সম্ভব নয়।")
         return
 
     url = "https://api.pushbullet.com/v2/pushes"
@@ -31,7 +31,7 @@ def send_pushbullet_notification(title, body):
     try:
         response = requests.post(url, headers=headers, json=data)
         if response.status_code == 200:
-            print(f"Pushbullet নোটিফিকেশন সফলভাবে পাঠানো হয়েছে: {title}")
+            print(f"Pushbullet নোটিফিকেশন সফলভাবে পাঠানো হয়েছে: {title}")
         else:
             print(f"Pushbullet ত্রুটি: স্ট্যাটাস কোড {response.status_code}")
     except Exception as e:
@@ -58,9 +58,8 @@ def calculate_obv_ma(dataframe):
     return dataframe
 
 def check_crossover(df, symbol, timeframe):
-    """OBV এবং MA_OBV_30 ক্রসওভার চেক করে নোটিফিকেশন পাঠায়"""
+    """OBV এবং MA_OBV_30 ক্রসওভার চেক করে নোটিফিকেশন পাঠায়"""
     
-    # নিশ্চিত করতে হবে ডেটা যথেষ্ট আছে 
     if len(df) < 2:
         return False
         
@@ -84,7 +83,7 @@ def check_crossover(df, symbol, timeframe):
     return False
 
 def send_manual_test_notification():
-    """ম্যানুয়ালি একটি টেস্ট নোটিফিকেশন পাঠায়"""
+    """ম্যানুয়ালি একটি টেস্ট নোটিফিকেশন পাঠায়"""
     test_title = "✅ GitHub Actions: Pushbullet টেস্ট সফল"
     test_body = "অভিনন্দন! আপনার Pushbullet এবং GitHub সংযোগ ঠিক আছে। এখন ট্রেডিং অ্যালার্ট সিস্টেম চালু হতে পারে।"
     send_pushbullet_notification(test_title, test_body)
@@ -94,9 +93,9 @@ def main():
     try:
         exchange = ccxt.binance()
         
-        # --- TEST NOTIFICATION CALL (পরীক্ষা শেষে এই লাইনটি মুছে দিন) ---
+        # --- TEST NOTIFICATION CALL: এটি পরীক্ষা শেষে মুছে দেওয়া উচিত ---
         send_manual_test_notification() 
-        # -----------------------------------------------------------------
+        # ------------------------------------------------------------------
         
         print(f"ট্রেডিং পেয়ার্স: {SYMBOL_PAIRS}, টাইমফ্রেম: {TIMEFRAMES}")
         
