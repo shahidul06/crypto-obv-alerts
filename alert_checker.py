@@ -93,7 +93,7 @@ def main():
     try:
         exchange = ccxt.binance()
         
-        # --- TEST NOTIFICATION CALL: এটি পরীক্ষা শেষে মুছে দেওয়া উচিত ---
+        # --- TEST NOTIFICATION CALL (পরীক্ষা শেষে এই লাইনটি মুছে দিন) ---
         send_manual_test_notification() 
         # ------------------------------------------------------------------
         
