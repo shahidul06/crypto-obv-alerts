@@ -1,0 +1,31 @@
+name: Scheduled Alert Check
+
+on:
+  # প্রতি ৫ মিনিটে স্ক্রিপ্টটি চালানোর জন্য Cron Job সেটআপ
+  schedule:
+    - cron: '*/5 * * * *' 
+
+  # ম্যানুয়ালি চালানোর জন্য
+  workflow_dispatch: 
+
+jobs:
+  run-alert-checker:
+    runs-on: ubuntu-latest  # স্ক্রিপ্টটি চালানোর জন্য প্ল্যাটফর্ম
+
+    steps:
+    - name: 1. Checkout code
+      uses: actions/checkout@v4
+
+    - name: 2. Set up Python 3.x
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.x'
+
+    - name: 3. Install dependencies
+      run: pip install -r requirements.txt
+
+    - name: 4. Run the Python script (with Secret)
+      env:
+        # সিক্রেট থেকে টোকেনটি এনভায়রনমেন্ট ভেরিয়েবল হিসেবে কোডে পাঠানো হচ্ছে
+        PUSHBULLET_TOKEN: ${{ secrets.PUSHBULLET_TOKEN }}
+      run: python alert_checker.py
