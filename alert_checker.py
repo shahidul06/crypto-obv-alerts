@@ -137,6 +137,10 @@ def main():
                     if len(df) < 2:
                         continue
                         
+                    # --- নতুন DEBUG লাইন: এই লাইনের মাধ্যমে আপনি মান যাচাই করতে পারবেন ---
+                    print(f"DEBUG DATA {symbol} {tf} - OBV:{df.iloc[-1]['OBV']:,.2f}, MA:{df.iloc[-1]['MA_OBV_30']:,.2f}")
+                    # -------------------------------------------------------------------
+                        
                     check_crossover(df, symbol, tf)
                     
                     time.sleep(0.5) 
