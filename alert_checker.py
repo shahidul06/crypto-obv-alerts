@@ -58,7 +58,7 @@ def calculate_obv_ma(dataframe):
     
     return dataframe
 
-def check_crossover(df, symbol, timeframe):
+def check_crossover(df, symbol, timeframe, exchange_name):
     """
     OBV এবং MA_OBV_30 ক্রসওভার চেক করে নোটিফিকেশন পাঠায়।
     Pre-crossover-এর জন্য 0.1% দূরত্ব চেক করে (সর্বোচ্চ সংবেদনশীলতা)।
@@ -76,7 +76,7 @@ def check_crossover(df, symbol, timeframe):
     obv_value = last['OBV']
     ma_value = last['MA_OBV_30']
     
-    alert_title = f"[🎯 ALERT - {symbol} - {timeframe}]"
+    alert_title = f"[🎯 ALERT - {symbol} - {timeframe} ({exchange_name})]"
     
     # 2. Hard Crossover (নিশ্চিত ক্রসওভার) লজিক:
     if prev['OBV'] < prev['MA_OBV_30'] and obv_value > ma_value:
@@ -114,42 +114,58 @@ def check_crossover(df, symbol, timeframe):
 
 def main():
     
-    try:
-        exchange = ccxt.binance()
-        
-        print(f"ট্রেডিং পেয়ার্স: {SYMBOL_PAIRS}, টাইমফ্রেম: {TIMEFRAMES}")
-        
-        for symbol in SYMBOL_PAIRS:
-            for tf in TIMEFRAMES:
-                try:
-                    # লিমিট=200 ক্যান্ডেল ডেটা নেওয়া হচ্ছে
-                    ohlcv = exchange.fetch_ohlcv(symbol, tf, limit=200) 
-                    if not ohlcv: continue
-                        
-                    df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-                    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-                    
-                    df = calculate_obv_ma(df)
-                    
-                    # NaN ফিক্স: NaN ভ্যালু বাদ দেওয়া হচ্ছে
-                    df.dropna(inplace=True) 
-                    
-                    if len(df) < 2:
-                        continue
-                        
-                    # --- নতুন DEBUG লাইন: এই লাইনের মাধ্যমে আপনি মান যাচাই করতে পারবেন ---
-                    print(f"DEBUG DATA {symbol} {tf} - OBV:{df.iloc[-1]['OBV']:,.2f}, MA:{df.iloc[-1]['MA_OBV_30']:,.2f}")
-                    # -------------------------------------------------------------------
-                        
-                    check_crossover(df, symbol, tf)
-                    
-                    time.sleep(0.5) 
-                    
-                except Exception as e:
-                    print(f"ডেটা প্রসেসিং বা API কল ত্রুটি ({symbol} {tf}): {e}")
-
-    except Exception as e:
-        print(f"এক্সচেঞ্জ কানেকশন বা প্রধান ত্রুটি: {e}")
+    # ব্যবহারের জন্য এক্সচেঞ্জের তালিকা তৈরি করুন (KuCoin এবং Bybit)
+    EXCHANGES_TO_CHECK = [
+        ccxt.kucoin(), 
+        ccxt.bybit()    
+    ]
     
+    print(f"ট্রেডিং পেয়ার্স: {SYMBOL_PAIRS}, টাইমফ্রেম: {TIMEFRAMES}")
+    
+    # প্রতিটি এক্সচেঞ্জের জন্য ডেটা আনার চেষ্টা করা হবে
+    for exchange in EXCHANGES_TO_CHECK:
+        exchange_name = exchange.id
+        print(f"\n--- {exchange_name.upper()} থেকে ডেটা আনার চেষ্টা ---")
+        
+        try:
+            
+            for symbol in SYMBOL_PAIRS:
+                for tf in TIMEFRAMES:
+                    try:
+                        # লিমিট=200 ক্যান্ডেল ডেটা নেওয়া হচ্ছে
+                        ohlcv = exchange.fetch_ohlcv(symbol, tf, limit=200) 
+                        
+                        if not ohlcv:
+                            print(f"ডেটা নেই: {symbol} {tf} ({exchange_name})")
+                            continue
+                            
+                        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+                        df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
+                        
+                        df = calculate_obv_ma(df)
+                        
+                        # NaN ফিক্স: NaN ভ্যালু বাদ দেওয়া হচ্ছে
+                        df.dropna(inplace=True) 
+                        
+                        if len(df) < 2:
+                            continue
+                            
+                        # DEBUG DATA লগে প্রিন্ট করবে
+                        print(f"DEBUG DATA {exchange_name.upper()} {symbol} {tf} - OBV:{df.iloc[-1]['OBV']:,.2f}, MA:{df.iloc[-1]['MA_OBV_30']:,.2f}")
+                            
+                        # ক্রসওভার চেক করা
+                        check_crossover(df, symbol, tf, exchange_name.upper()) # এক্সচেঞ্জের নাম পাস করা হয়েছে
+                        
+                        time.sleep(0.5) 
+                        
+                    except Exception as e:
+                        # নির্দিষ্ট পেয়ারের ত্রুটি: এই এক্সচেঞ্জ থেকে ডেটা আনা সম্ভব নয়
+                        print(f"ডেটা প্রসেসিং বা API কল ত্রুটি ({symbol} {tf} - {exchange_name.upper()}): {e}")
+
+        except Exception as e:
+            # এক্সচেঞ্জ স্তরের ত্রুটি: সম্ভবত পুরো এক্সচেঞ্জই ব্লক করা
+            print(f"এক্সচেঞ্জ কানেকশন ত্রুটি ({exchange_name.upper()}): {e}")
+            continue # এই এক্সচেঞ্জ ব্যর্থ হলে পরেরটি চেষ্টা করা হবে
+            
 if __name__ == "__main__":
     main()
