@@ -8,7 +8,8 @@ import time
 PUSHBULLET_TOKEN = os.environ.get('PUSHBULLET_TOKEN')
 MA_PERIOD = 30 
 SYMBOL_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']
-TIMEFRAMES = ['5m', '10m', '15m', '30m', '1h']
+# 10m টাইমফ্রেম বাদ দেওয়া হয়েছে
+TIMEFRAMES = ['5m', '15m', '30m', '1h'] 
 # -----------------------------------------------------------------
 
 def send_pushbullet_notification(title, body):
@@ -114,10 +115,10 @@ def check_crossover(df, symbol, timeframe, exchange_name):
 
 def main():
     
-    # ব্যবহারের জন্য এক্সচেঞ্জের তালিকা তৈরি করুন (KuCoin এবং Bybit)
+    # ব্যবহারের জন্য এক্সচেঞ্জের তালিকা তৈরি করুন (MEXC এখন প্রথম পছন্দ)
     EXCHANGES_TO_CHECK = [
+        ccxt.mexc(),    # নতুন প্রধান পছন্দ
         ccxt.kucoin(), 
-        ccxt.bybit()    
     ]
     
     print(f"ট্রেডিং পেয়ার্স: {SYMBOL_PAIRS}, টাইমফ্রেম: {TIMEFRAMES}")
@@ -159,11 +160,11 @@ def main():
                         time.sleep(0.5) 
                         
                     except Exception as e:
-                        # নির্দিষ্ট পেয়ারের ত্রুটি: এই এক্সচেঞ্জ থেকে ডেটা আনা সম্ভব নয়
+                        # নির্দিষ্ট পেয়ারের ত্রুটি
                         print(f"ডেটা প্রসেসিং বা API কল ত্রুটি ({symbol} {tf} - {exchange_name.upper()}): {e}")
 
         except Exception as e:
-            # এক্সচেঞ্জ স্তরের ত্রুটি: সম্ভবত পুরো এক্সচেঞ্জই ব্লক করা
+            # এক্সচেঞ্জ স্তরের ত্রুটি
             print(f"এক্সচেঞ্জ কানেকশন ত্রুটি ({exchange_name.upper()}): {e}")
             continue # এই এক্সচেঞ্জ ব্যর্থ হলে পরেরটি চেষ্টা করা হবে
             
