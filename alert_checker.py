@@ -4,13 +4,13 @@ import requests
 import os
 import time
 
-# --- কনফিগারেশন: এই ভ্যালুগুলো কোডে পরিবর্তন করার প্রয়োজন নেই ---
+# --- কনফিগারেশন ---
 PUSHBULLET_TOKEN = os.environ.get('PUSHBULLET_TOKEN')
 MA_PERIOD = 30 
 SYMBOL_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']
-# 10m টাইমফ্রেম বাদ দেওয়া হয়েছে
+# 10m টাইমফ্রেম বাদ দেওয়া হয়েছে (KuCoin ত্রুটির কারণে)
 TIMEFRAMES = ['5m', '15m', '30m', '1h'] 
-# -----------------------------------------------------------------
+# --------------------
 
 def send_pushbullet_notification(title, body):
     """Pushbullet এর মাধ্যমে নোটিফিকেশন পাঠানো হয়"""
@@ -117,7 +117,7 @@ def main():
     
     # ব্যবহারের জন্য এক্সচেঞ্জের তালিকা তৈরি করুন (MEXC এখন প্রথম পছন্দ)
     EXCHANGES_TO_CHECK = [
-        ccxt.mexc(),    # নতুন প্রধান পছন্দ
+        ccxt.mexc(),    
         ccxt.kucoin(), 
     ]
     
@@ -151,11 +151,10 @@ def main():
                         if len(df) < 2:
                             continue
                             
-                        # DEBUG DATA লগে প্রিন্ট করবে
-                        print(f"DEBUG DATA {exchange_name.upper()} {symbol} {tf} - OBV:{df.iloc[-1]['OBV']:,.2f}, MA:{df.iloc[-1]['MA_OBV_30']:,.2f}")
+                        # **DEBUG লাইনটি এখান থেকে মুছে ফেলা হয়েছে**
                             
                         # ক্রসওভার চেক করা
-                        check_crossover(df, symbol, tf, exchange_name.upper()) # এক্সচেঞ্জের নাম পাস করা হয়েছে
+                        check_crossover(df, symbol, tf, exchange_name.upper()) 
                         
                         time.sleep(0.5) 
                         
