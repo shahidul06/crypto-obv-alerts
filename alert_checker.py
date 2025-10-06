@@ -7,14 +7,11 @@ import time
 # --- কনফিগারেশন: ইন্ডিকেটর প্যারামিটার ও ট্রেড সেটিংস ---
 PUSHBULLET_TOKEN = os.environ.get('PUSHBULLET_TOKEN')
 MA_PERIOD = 30           # OBV Moving Average (EMA) পিরিয়ড
-ATR_PERIOD = 14          # ATR পিরিয়ড
-ADX_PERIOD = 14          # ADX পিরিয়ড
-ADX_THRESHOLD = 25       # ADX শর্ত: প্রবণতা শক্তিশালী হওয়ার জন্য সর্বনিম্ন মান
-SL_MULTIPLIER = 2.0      # Stop Loss: 2.0 * ATR
-TP_RR_RATIO = 1.5        # Take Profit: 1.5 : 1 (Risk/Reward Ratio)
+# প্রাইস এই লেভেলের কত শতাংশ কাছাকাছি থাকলে অ্যালার্ট দেবে (0.005 = 0.5%)
+SR_PROXIMITY_PERCENT = 0.005 
 
 SYMBOL_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']
-TIMEFRAMES = ['5m', '15m', '30m', '1h'] # 10m বাদ দেওয়া হয়েছে
+TIMEFRAMES = ['5m', '15m', '30m', '1h'] 
 # ----------------------------------------------------
 
 def send_pushbullet_notification(title, body):
@@ -43,10 +40,8 @@ def send_pushbullet_notification(title, body):
     except Exception as e:
         print(f"Pushbullet সংযোগ ত্রুটি: {e}")
 
-def calculate_technical_indicators(dataframe):
-    """OBV, OBV MA, ATR এবং ADX গণনা করে"""
-    
-    # --- 1. OBV and MA Calculation ---
+def calculate_obv_ma(dataframe):
+    """OBV এবং ৩০ পিরিয়ডের Exponential Moving Average (EMA) গণনা করে"""
     obv = [0] * len(dataframe)
     for i in range(1, len(dataframe)):
         volume = dataframe['volume'].iloc[i]
@@ -59,138 +54,188 @@ def calculate_technical_indicators(dataframe):
             obv[i] = obv[i-1] - volume
         else:
             obv[i] = obv[i-1]
-            
+    
     dataframe['OBV'] = obv
     dataframe['MA_OBV_30'] = dataframe['OBV'].ewm(span=MA_PERIOD, adjust=False).mean()
+    return dataframe
 
-    # --- 2. ATR Calculation ---
-    # True Range (TR)
-    h_l = dataframe['high'] - dataframe['low']
-    h_pc = abs(dataframe['high'] - dataframe['close'].shift(1))
-    l_pc = abs(dataframe['low'] - dataframe['close'].shift(1))
-    dataframe['TR'] = h_l.combine(h_pc, max).combine(l_pc, max)
-    dataframe['ATR'] = dataframe['TR'].ewm(span=ATR_PERIOD, adjust=False).mean()
-
-    # --- 3. ADX Calculation ---
+def calculate_pivot_points(df):
+    """Traditional Pivot Points গণনা করে"""
     
-    # Directional Movement (DM)
-    dataframe['+DM'] = dataframe['high'] - dataframe['high'].shift(1)
-    dataframe['-DM'] = dataframe['low'].shift(1) - dataframe['low']
-
-    # True DM (Filtering out negative values and setting the dominant DM)
-    dataframe['+DM'] = dataframe.apply(lambda row: row['+DM'] if row['+DM'] > row['-DM'] and row['+DM'] > 0 else 0, axis=1)
-    dataframe['-DM'] = dataframe.apply(lambda row: row['-DM'] if row['+DM'] < row['-DM'] and row['+DM'] <= 0 and row['-DM'] > 0 else 0, axis=1)
-    
-    # Smooth DM and TR (Wilder's smoothing method using EWM)
-    def smooth_indicator(series, period):
-        # EWM equivalent to Wilder's smoothing
-        return series.ewm(alpha=1/period, adjust=False).mean()
+    # Pivot Points গণনার জন্য শেষ ক্যান্ডেলের আগের ক্যান্ডেল ব্যবহার করা হয় (C-2) 
+    # কারণ C-1 (শেষ ক্যান্ডেল) এখনও ওপেন থাকতে পারে। 
+    # যদিও OHLCV ডেটা ক্লোজড ক্যান্ডেল হিসেবে আসে, তবুও ট্রেডিশনাল পদ্ধতি C-2 ব্যবহার করে।
+    if len(df) < 2:
+        return None
         
-    dataframe['TR_S'] = smooth_indicator(dataframe['TR'], ADX_PERIOD)
-    dataframe['+DM_S'] = smooth_indicator(dataframe['+DM'], ADX_PERIOD)
-    dataframe['-DM_S'] = smooth_indicator(dataframe['+DM'], ADX_PERIOD)
+    prev_candle = df.iloc[-2]
+    H = prev_candle['high']
+    L = prev_candle['low']
+    C = prev_candle['close']
     
-    # Directional Index (DI)
-    dataframe['+DI'] = (dataframe['+DM_S'] / dataframe['TR_S']) * 100
-    dataframe['-DI'] = (dataframe['+DM_S'] / dataframe['TR_S']) * 100
+    # Pivot Point (PP)
+    PP = (H + L + C) / 3
     
-    # DX and ADX
-    dataframe['DX'] = (abs(dataframe['+DI'] - dataframe['-DI']) / (dataframe['+DI'] + dataframe['-DI'])) * 100
-    dataframe['ADX'] = dataframe['DX'].ewm(span=ADX_PERIOD, adjust=False).mean()
+    # Resistance Levels (R)
+    R1 = (2 * PP) - L
+    R2 = PP + (H - L)
+    R3 = H + 2 * (PP - L)
+
+    # Support Levels (S)
+    S1 = (2 * PP) - H
+    S2 = PP - (H - L)
+    S3 = L - 2 * (H - PP)
     
-    # শুধুমাত্র প্রয়োজনীয় কলামগুলো রাখুন
-    columns_to_keep = ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'OBV', 'MA_OBV_30', 'ATR', 'ADX']
-    return dataframe[columns_to_keep]
+    # PP ও R3/S3 সাধারণত কম ব্যবহৃত হয়, আমরা R1, R2, S1, S2 ব্যবহার করব।
+    return [S1, S2, R1, R2] 
+
+def is_near_sr(current_close, sr_levels):
+    """বর্তমান মূল্য গণনা করা Pivot Points লেভেলের কাছাকাছি কিনা তা চেক করে"""
+    if not sr_levels:
+        return None, None 
+    
+    for level in sr_levels:
+        if abs(current_close - level) / level <= SR_PROXIMITY_PERCENT:
+            sr_type = "Support" if current_close > level else "Resistance"
+            return level, sr_type
+            
+    return None, None
+
+def check_candlestick_patterns(df, sr_level, sr_type):
+    """
+    S/R লেভেলের কাছাকাছি একাধিক Candlestick Pattern চেক করে।
+    """
+    if len(df) < 2:
+        return None, None 
+
+    c1 = df.iloc[-1]
+    c2 = df.iloc[-2]
+
+    body_c1 = abs(c1['close'] - c1['open'])
+    c1_range = c1['high'] - c1['low']
+    
+    DOJI_THRESHOLD = 0.1
+    SHADOW_RATIO = 2.0 
+    
+    # ------------------- 1. ENGULFING PATTERNS (2-Candle) -------------------
+    body_c2 = abs(c2['close'] - c2['open'])
+    if body_c1 > 0 and body_c2 > 0:
+        
+        # Bullish Engulfing (সাপোর্টে)
+        if (sr_type == "Support" and c2['close'] < c2['open'] and c1['close'] > c1['open'] and
+            c1['close'] >= c2['open'] and c1['open'] <= c2['close']):
+            return "BULLISH ENGULFING", "Bullish"
+
+        # Bearish Engulfing (রেজিস্ট্যান্সে)
+        elif (sr_type == "Resistance" and c2['close'] > c2['open'] and c1['close'] < c1['open'] and
+              c1['open'] >= c2['close'] and c1['close'] <= c2['open']):
+            return "BEARISH ENGULFING", "Bearish"
+
+    # ------------------- 2. HAMMER / HANGING MAN (1-Candle) -------------------
+    lower_shadow = min(c1['open'], c1['close']) - c1['low']
+    upper_shadow = c1['high'] - max(c1['open'], c1['close'])
+    
+    # Hammer (সাপোর্টে বুলিশ রিভার্সাল)
+    if (sr_type == "Support" and body_c1 > 0 and 
+        lower_shadow >= body_c1 * SHADOW_RATIO and upper_shadow < body_c1):
+        return "BULLISH HAMMER", "Bullish"
+
+    # Hanging Man (রেজিস্ট্যান্সে বেয়ারিশ রিভার্সাল)
+    elif (sr_type == "Resistance" and body_c1 > 0 and 
+          lower_shadow >= body_c1 * SHADOW_RATIO and upper_shadow < body_c1):
+        return "BEARISH HANGING MAN", "Bearish"
+
+    # ------------------- 3. DOJI (1-Candle) -------------------
+    if body_c1 < c1_range * DOJI_THRESHOLD:
+        return "DOJI STAR (Indecision)", "Indecision"
+
+    return None, None 
 
 def check_crossover(df, symbol, timeframe, exchange_name):
     """
-    OBV/MA, ADX (ট্রেন্ড) এবং ATR (ভোলাটিলিটি) এর সমন্বয়ে গঠিত নতুন স্ট্র্যাটেজি চেক করে।
+    Pivot Points, Candlestick এবং OBV/MA এর সমন্বয়ে অ্যালার্ট চেক করে।
     """
     
-    if len(df) < (ADX_PERIOD * 2) or pd.isna(df.iloc[-1]['ADX']):
-        # ADX ক্যালকুলেশনের জন্য পর্যাপ্ত ডেটা নেই বা ইনিশিয়াল NaN
+    if len(df) < 2:
         return False
         
     last = df.iloc[-1]
     prev = df.iloc[-2]
-    
-    # Indicator Values
-    obv_value = last['OBV']
-    ma_value = last['MA_OBV_30']
-    adx_value = last['ADX']
-    atr_value = last['ATR']
     current_close = last['close']
     
-    # 1. ADX Condition: Trend must be strong
-    if adx_value < ADX_THRESHOLD:
-        return False # ADX 25 এর নিচে, দুর্বল প্রবণতা: অ্যালার্ট উপেক্ষা করুন
-
-    # --- ট্রেডিং সিগন্যাল (Hard Crossover) ---
-    
-    # 2. Bullish Entry (Buy Signal)
-    if prev['OBV'] < prev['MA_OBV_30'] and obv_value > ma_value:
-        
-        # SL/TP Calculation (ATR based)
-        stop_loss_distance = atr_value * SL_MULTIPLIER
-        stop_loss_price = current_close - stop_loss_distance
-        take_profit_distance = stop_loss_distance * TP_RR_RATIO
-        take_profit_price = current_close + take_profit_distance
-        
-        alert_title = f"[✅ BUY SIGNAL - {symbol} - {timeframe} ({exchange_name})]"
-        alert_body = (
-            f"🚀 BULLISH ENTRY (ক্রস আপ)!\n"
-            f"OBV > MA: ভলিউম সমর্থন করছে।\n"
-            f"Trend Strength (ADX): {adx_value:,.2f} (ADX > {ADX_THRESHOLD})\n"
-            f"Volatility (ATR): {atr_value:,.4f}\n\n"
-            f"Trade Plan (R/R {TP_RR_RATIO}:1):\n"
-            f"Entry Price: {current_close:,.4f}\n"
-            f"Stop Loss (SL): {stop_loss_price:,.4f} ({SL_MULTIPLIER}x ATR)\n"
-            f"Take Profit (TP): {take_profit_price:,.4f}"
-        )
-        send_pushbullet_notification(alert_title, alert_body)
-        return True
-
-    # 3. Bearish Entry (Sell Signal)
-    elif prev['OBV'] > prev['MA_OBV_30'] and obv_value < ma_value:
-        
-        # SL/TP Calculation (ATR based)
-        stop_loss_distance = atr_value * SL_MULTIPLIER
-        stop_loss_price = current_close + stop_loss_distance
-        take_profit_distance = stop_loss_distance * TP_RR_RATIO
-        take_profit_price = current_close - take_profit_distance
-        
-        alert_title = f"[❌ SELL SIGNAL - {symbol} - {timeframe} ({exchange_name})]"
-        alert_body = (
-            f"📉 BEARISH ENTRY (ক্রস ডাউন)!\n"
-            f"OBV < MA: ভলিউম সমর্থন করছে।\n"
-            f"Trend Strength (ADX): {adx_value:,.2f} (ADX > {ADX_THRESHOLD})\n"
-            f"Volatility (ATR): {atr_value:,.4f}\n\n"
-            f"Trade Plan (R/R {TP_RR_RATIO}:1):\n"
-            f"Entry Price: {current_close:,.4f}\n"
-            f"Stop Loss (SL): {stop_loss_price:,.4f} ({SL_MULTIPLIER}x ATR)\n"
-            f"Take Profit (TP): {take_profit_price:,.4f}"
-        )
-        send_pushbullet_notification(alert_title, alert_body)
-        return True
-    
-    # **Pre-Cross লজিক:** হার্ড ক্রসওভারের পরিবর্তে শুধুমাত্র সতর্কবার্তা
-    # শুধুমাত্র শক্তিশালী প্রবণতার সময় (ADX > 25) Pre-Cross দেখাবে
+    # 1. OBV/MA Crossover Check 
     PRE_CROSS_THRESHOLD = 0.001 
+    obv_value = last['OBV']
+    ma_value = last['MA_OBV_30']
     
-    if abs(ma_value) > 1: # Numerical safety
+    # Hard Crossover 
+    is_bullish_cross = (prev['OBV'] < prev['MA_OBV_30'] and obv_value > ma_value)
+    is_bearish_cross = (prev['OBV'] > prev['MA_OBV_30'] and obv_value < ma_value)
+    
+    # Pre-Cross Logic
+    is_pre_cross = False
+    if abs(ma_value) > 1:
         difference = abs(obv_value - ma_value)
         distance_percent = difference / abs(ma_value)
-        
         if distance_percent <= PRE_CROSS_THRESHOLD:
-            # Pre-Cross Warning
-            alert_title = f"[⚠️ PRE-CROSS WARNING - {symbol} - {timeframe} ({exchange_name})]"
-            alert_body = (
-                f"OBV MA-এর খুব কাছে: {distance_percent:.2%} দূরত্বে।\n"
-                f"Trend Strength (ADX): {adx_value:,.2f}।\n"
-                f"পরবর্তী ক্যান্ডেলে এন্ট্রির জন্য প্রস্তুত থাকুন।"
-            )
-            send_pushbullet_notification(alert_title, alert_body)
-            return True
+            is_pre_cross = True
+            
+    # 2. Pivot Points and Candlestick Check (স্বয়ংক্রিয় S/R লেভেল)
+    sr_levels = calculate_pivot_points(df) # Pivot Points গণনা করা হচ্ছে
+    sr_level, sr_type = is_near_sr(current_close, sr_levels)
+    pattern_name, pattern_signal = None, None
+    
+    if sr_level is not None:
+        pattern_name, pattern_signal = check_candlestick_patterns(df, sr_level, sr_type)
+        
+    # --- অ্যালার্ট জেনারেশন ---
+    alert_title_base = f"[{symbol} - {timeframe} ({exchange_name})]"
+    
+    # A. HIGH CONVICTION SIGNAL (OBV/MA + S/R/Candle)
+    if (is_bullish_cross and pattern_signal == "Bullish") or \
+       (is_bearish_cross and pattern_signal == "Bearish"):
+        
+        signal_type = "BUY" if is_bullish_cross else "SELL"
+        
+        alert_body = (
+            f"🔥🔥🔥 HIGH CONFIRMATION ENTRY ({signal_type})! 🔥🔥🔥\n"
+            f"1. OBV/MA Cross: নিশ্চিত প্রবণতা পরিবর্তন।\n"
+            f"2. Pivot Reversal: **{pattern_name}** তৈরি হয়েছে {sr_type} ({sr_level:,.2f})-এর কাছে।"
+        )
+        send_pushbullet_notification(f"🌟 PIVOT & OBV CONFIRMATION ({signal_type}) {alert_title_base}", alert_body)
+        return True
+    
+    # B. PIVOT Reversal Alert (শুধুমাত্র Pivot Points এবং Candlestick, কোনো ক্রস নেই)
+    elif pattern_name is not None:
+        
+        if "DOJI" in pattern_name:
+            alert_priority = "⚠️ PIVOT INDECISION"
+        else:
+            alert_priority = "⚠️ PIVOT REVERSAL"
+        
+        alert_body = (
+            f"**{pattern_name}** তৈরি হয়েছে!\n"
+            f"Candle Pattern: তৈরি হয়েছে {sr_type} ({sr_level:,.2f})-এর কাছে।\n"
+            f"OBV/MA অবস্থান: {obv_value:,.2f} / {ma_value:,.2f}।"
+        )
+        send_pushbullet_notification(f"{alert_priority} {alert_title_base}", alert_body)
+        return True
+        
+    # C. REGULAR OBV/MA Crossover 
+    elif is_bullish_cross or is_bearish_cross:
+        action = "BUY" if is_bullish_cross else "SELL"
+        alert_body = f"🚀 {action} Crossover! OBV:{obv_value:,.2f}, MA:{ma_value:,.2f}"
+        send_pushbullet_notification(f"🎯 REGULAR {action} {alert_title_base}", alert_body)
+        return True
+
+    # D. Pre-Cross Alert 
+    elif is_pre_cross:
+        alert_body = (
+            f"⚠️ Pre-Cross Warning: OBV MA-এর খুব কাছাকাছি! দূরত্ব: {distance_percent:.2%}\n"
+            f"OBV:{obv_value:,.2f}, MA:{ma_value:,.2f}"
+        )
+        send_pushbullet_notification(f"⚠️ PRE-CROSS {alert_title_base}", alert_body)
+        return True
         
     return False
 
@@ -211,6 +256,7 @@ def main():
             for symbol in SYMBOL_PAIRS:
                 for tf in TIMEFRAMES:
                     try:
+                        # 200টি ক্যান্ডেল ডেটা নেওয়া হচ্ছে
                         ohlcv = exchange.fetch_ohlcv(symbol, tf, limit=200) 
                         
                         if not ohlcv:
@@ -220,15 +266,12 @@ def main():
                         df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
                         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
                         
-                        # নতুন ইন্ডিকেটর ফাংশন কল করা হয়েছে
-                        df = calculate_technical_indicators(df) 
-                        
+                        df = calculate_obv_ma(df)
                         df.dropna(inplace=True) 
                         
                         if len(df) < 2:
                             continue
                             
-                        # ক্রসওভার চেক করা
                         check_crossover(df, symbol, tf, exchange_name.upper()) 
                         
                         time.sleep(0.5) 
