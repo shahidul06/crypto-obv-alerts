@@ -6,10 +6,11 @@ import time
 
 # --- কনফিগারেশন: ইন্ডিকেটর প্যারামিটার ও ট্রেড সেটিংস ---
 PUSHBULLET_TOKEN = os.environ.get('PUSHBULLET_TOKEN')
-MA_PERIOD = 30           # OBV Moving Average (EMA) পিরিয়ড (আপনার অনুরোধে 30 এ রাখা হলো)
+# **পরিবর্তন:** MA পিরিয়ড এখন 50
+MA_PERIOD = 50           
 SYMBOL_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']
 
-# **পরিবর্তন:** 5 মিনিটের টাইমফ্রেম বাতিল করা হয়েছে।
+# শুধুমাত্র 15m, 30m, 1h টাইমফ্রেম চেক করা হবে
 TIMEFRAMES = ['15m', '30m', '1h'] 
 # ----------------------------------------------------
 
@@ -40,7 +41,7 @@ def send_pushbullet_notification(title, body):
         print(f"Pushbullet সংযোগ ত্রুটি: {e}")
 
 def calculate_obv_ma(dataframe):
-    """OBV এবং ৩০ পিরিয়ডের Exponential Moving Average (EMA) গণনা করে"""
+    """OBV এবং 50 পিরিয়ডের Exponential Moving Average (EMA) গণনা করে"""
     obv = [0] * len(dataframe)
     for i in range(1, len(dataframe)):
         volume = dataframe['volume'].iloc[i]
@@ -56,15 +57,15 @@ def calculate_obv_ma(dataframe):
     
     dataframe['OBV'] = obv
     # EMA গণনা
-    dataframe['MA_OBV_30'] = dataframe['OBV'].ewm(span=MA_PERIOD, adjust=False).mean()
+    dataframe[f'MA_OBV_{MA_PERIOD}'] = dataframe['OBV'].ewm(span=MA_PERIOD, adjust=False).mean()
     
     # শুধুমাত্র প্রয়োজনীয় কলামগুলো রাখুন
-    columns_to_keep = ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'OBV', 'MA_OBV_30']
+    columns_to_keep = ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'OBV', f'MA_OBV_{MA_PERIOD}']
     return dataframe[columns_to_keep]
 
 def check_crossover(df, symbol, timeframe, exchange_name):
     """
-    শুধুমাত্র OBV এবং MA_OBV_30 ক্রসওভার এবং Pre-Cross চেক করে।
+    শুধুমাত্র OBV এবং MA_OBV_50 ক্রসওভার এবং Pre-Cross চেক করে।
     """
     
     if len(df) < 2:
@@ -77,18 +78,18 @@ def check_crossover(df, symbol, timeframe, exchange_name):
     PRE_CROSS_THRESHOLD = 0.001 
     
     obv_value = last['OBV']
-    ma_value = last['MA_OBV_30']
+    ma_value = last[f'MA_OBV_{MA_PERIOD}'] # ডাইনামিক MA কলাম নাম ব্যবহার
     
     alert_title_base = f"[{symbol} - {timeframe} ({exchange_name})]"
     
     # 2. Hard Crossover (নিশ্চিত ক্রসওভার) লজিক:
-    if prev['OBV'] < prev['MA_OBV_30'] and obv_value > ma_value:
-        alert_body = f"🚀 Bullish Crossover (ক্রস আপ)! নিশ্চিত প্রবণতা পরিবর্তন! OBV:{obv_value:,.2f}, MA:{ma_value:,.2f}"
+    if prev['OBV'] < prev[f'MA_OBV_{MA_PERIOD}'] and obv_value > ma_value:
+        alert_body = f"🚀 Bullish Crossover (ক্রস আপ)! নিশ্চিত প্রবণতা পরিবর্তন! OBV:{obv_value:,.2f}, MA({MA_PERIOD}):{ma_value:,.2f}"
         send_pushbullet_notification(f"✅ BUY SIGNAL {alert_title_base}", alert_body)
         return True
 
-    elif prev['OBV'] > prev['MA_OBV_30'] and obv_value < ma_value:
-        alert_body = f"📉 Bearish Crossover (ক্রস ডাউন)! নিশ্চিত প্রবণতা পরিবর্তন! OBV:{obv_value:,.2f}, MA:{ma_value:,.2f}"
+    elif prev['OBV'] > prev[f'MA_OBV_{MA_PERIOD}'] and obv_value < ma_value:
+        alert_body = f"📉 Bearish Crossover (ক্রস ডাউন)! নিশ্চিত প্রবণতা পরিবর্তন! OBV:{obv_value:,.2f}, MA({MA_PERIOD}):{ma_value:,.2f}"
         send_pushbullet_notification(f"❌ SELL SIGNAL {alert_title_base}", alert_body)
         return True
         
@@ -104,8 +105,8 @@ def check_crossover(df, symbol, timeframe, exchange_name):
             
             # শুধুমাত্র সতর্কবার্তা পাঠাবে যদি এটি আসল ক্রসওভার না হয়
             alert_body = (
-                f"⚠️ Pre-Cross Warning: OBV MA-এর খুব কাছাকাছি! দূরত্ব: {distance_percent:.2%}\n"
-                f"OBV:{obv_value:,.2f}, MA:{ma_value:,.2f}"
+                f"⚠️ Pre-Cross Warning: OBV MA({MA_PERIOD})-এর খুব কাছাকাছি! দূরত্ব: {distance_percent:.2%}\n"
+                f"OBV:{obv_value:,.2f}, MA({MA_PERIOD}):{ma_value:,.2f}"
             )
             send_pushbullet_notification(f"⚠️ PRE-CROSS {alert_title_base}", alert_body)
             return True
@@ -162,7 +163,7 @@ def main():
         except Exception as e:
             # এক্সচেঞ্জ স্তরের ত্রুটি
             print(f"এক্সচেঞ্জ কানেকশন ত্রুটি ({exchange_name.upper()}): {e}")
-            continue # এই এক্সচেঞ্জ ব্যর্থ হলে পরেরটি চেষ্টা করা হবে
+            continue 
             
 if __name__ == "__main__":
     main()
