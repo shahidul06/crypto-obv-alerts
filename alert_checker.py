@@ -6,9 +6,11 @@ import time
 
 # --- কনফিগারেশন: ইন্ডিকেটর প্যারামিটার ও ট্রেড সেটিংস ---
 PUSHBULLET_TOKEN = os.environ.get('PUSHBULLET_TOKEN')
-MA_PERIOD = 30           # OBV Moving Average (EMA) পিরিয়ড
+MA_PERIOD = 30           # OBV Moving Average (EMA) পিরিয়ড (আপনার অনুরোধে 30 এ রাখা হলো)
 SYMBOL_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']
-TIMEFRAMES = ['5m', '15m', '30m', '1h'] 
+
+# **পরিবর্তন:** 5 মিনিটের টাইমফ্রেম বাতিল করা হয়েছে।
+TIMEFRAMES = ['15m', '30m', '1h'] 
 # ----------------------------------------------------
 
 def send_pushbullet_notification(title, body):
@@ -62,8 +64,7 @@ def calculate_obv_ma(dataframe):
 
 def check_crossover(df, symbol, timeframe, exchange_name):
     """
-    শুধুমাত্র OBV এবং MA_OBV_30 ক্রসওভার চেক করে নোটিফিকেশন পাঠায়।
-    Pre-crossover-এর জন্য 0.1% দূরত্ব চেক করে।
+    শুধুমাত্র OBV এবং MA_OBV_30 ক্রসওভার এবং Pre-Cross চেক করে।
     """
     
     if len(df) < 2:
@@ -161,7 +162,7 @@ def main():
         except Exception as e:
             # এক্সচেঞ্জ স্তরের ত্রুটি
             print(f"এক্সচেঞ্জ কানেকশন ত্রুটি ({exchange_name.upper()}): {e}")
-            continue 
+            continue # এই এক্সচেঞ্জ ব্যর্থ হলে পরেরটি চেষ্টা করা হবে
             
 if __name__ == "__main__":
     main()
