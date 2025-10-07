@@ -6,11 +6,12 @@ import time
 
 # --- কনফিগারেশন: ইন্ডিকেটর প্যারামিটার ও ট্রেড সেটিংস ---
 PUSHBULLET_TOKEN = os.environ.get('PUSHBULLET_TOKEN')
-# **পরিবর্তন:** MA পিরিয়ড এখন 50
-MA_PERIOD = 50           
-SYMBOL_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']
+MA_PERIOD = 50           # OBV Moving Average (EMA) পিরিয়ড
+ADX_PERIOD = 14          # ADX গণনার জন্য পিরিয়ড
+ADX_THRESHOLD = 25       # ADX এই মানের উপরে থাকলে তবেই সিগনাল নিশ্চিত হবে
 
-# শুধুমাত্র 15m, 30m, 1h টাইমফ্রেম চেক করা হবে
+SYMBOL_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']
+# 5m টাইমফ্রেম বাতিল
 TIMEFRAMES = ['15m', '30m', '1h'] 
 # ----------------------------------------------------
 
@@ -41,7 +42,7 @@ def send_pushbullet_notification(title, body):
         print(f"Pushbullet সংযোগ ত্রুটি: {e}")
 
 def calculate_obv_ma(dataframe):
-    """OBV এবং 50 পিরিয়ডের Exponential Moving Average (EMA) গণনা করে"""
+    """OBV এবং 50 পিরিয়ডের EMA গণনা করে"""
     obv = [0] * len(dataframe)
     for i in range(1, len(dataframe)):
         volume = dataframe['volume'].iloc[i]
@@ -56,54 +57,102 @@ def calculate_obv_ma(dataframe):
             obv[i] = obv[i-1]
     
     dataframe['OBV'] = obv
-    # EMA গণনা
     dataframe[f'MA_OBV_{MA_PERIOD}'] = dataframe['OBV'].ewm(span=MA_PERIOD, adjust=False).mean()
+    return dataframe
+
+def calculate_adx(dataframe, period=ADX_PERIOD):
+    """
+    ADX ইন্ডিকেটর গণনা করে।
+    """
     
-    # শুধুমাত্র প্রয়োজনীয় কলামগুলো রাখুন
-    columns_to_keep = ['timestamp', 'open', 'high', 'low', 'close', 'volume', 'OBV', f'MA_OBV_{MA_PERIOD}']
-    return dataframe[columns_to_keep]
+    # 1. True Range (TR)
+    tr1 = dataframe['high'] - dataframe['low']
+    tr2 = abs(dataframe['high'] - dataframe['close'].shift(1))
+    tr3 = abs(dataframe['low'] - dataframe['close'].shift(1))
+    dataframe['TR'] = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+
+    # 2. Directional Movement (+DM and -DM)
+    dataframe['+DM'] = dataframe['high'] - dataframe['high'].shift(1)
+    dataframe['-DM'] = dataframe['low'].shift(1) - dataframe['low']
+    
+    # +DM and -DM rules:
+    dataframe['+DM'] = dataframe.apply(
+        lambda row: row['+DM'] if row['+DM'] > row['-DM'] and row['+DM'] > 0 else 0, axis=1
+    )
+    dataframe['-DM'] = dataframe.apply(
+        lambda row: row['-DM'] if row['-DM'] > row['+DM'] and row['-DM'] > 0 else 0, axis=1
+    )
+
+    # 3. Smoothed TR, +DM, -DM (Using Wilder's smoothing method - EMA equivalent)
+    alpha = 1 / period
+    dataframe['ATR'] = dataframe['TR'].ewm(alpha=alpha, adjust=False).mean()
+    dataframe['+DI'] = (dataframe['+DM'].ewm(alpha=alpha, adjust=False).mean() / dataframe['ATR']) * 100
+    dataframe['-DI'] = (dataframe['-DM'].ewm(alpha=alpha, adjust=False).mean() / dataframe['ATR']) * 100
+
+    # 4. Directional Index (DX)
+    dataframe['DX'] = (abs(dataframe['+DI'] - dataframe['-DI']) / (dataframe['+DI'] + dataframe['-DI'])) * 100
+
+    # 5. Average Directional Index (ADX)
+    dataframe['ADX'] = dataframe['DX'].ewm(alpha=alpha, adjust=False).mean()
+
+    return dataframe
 
 def check_crossover(df, symbol, timeframe, exchange_name):
     """
-    শুধুমাত্র OBV এবং MA_OBV_50 ক্রসওভার এবং Pre-Cross চেক করে।
+    OBV/MA ক্রসওভার চেক করে এবং ADX দিয়ে ফিল্টার করে।
     """
     
-    if len(df) < 2:
+    if len(df) < (ADX_PERIOD * 2):
+        # ADX এর সঠিক গণনার জন্য পর্যাপ্ত ডেটা নেই।
         return False
         
     last = df.iloc[-1]
     prev = df.iloc[-2]
     
-    # 1. সেটআপ: থ্রেশহোল্ড 0.1% এ সেট করা হলো (0.001)
     PRE_CROSS_THRESHOLD = 0.001 
     
     obv_value = last['OBV']
-    ma_value = last[f'MA_OBV_{MA_PERIOD}'] # ডাইনামিক MA কলাম নাম ব্যবহার
+    ma_value = last[f'MA_OBV_{MA_PERIOD}'] 
+    adx_value = last['ADX']
     
     alert_title_base = f"[{symbol} - {timeframe} ({exchange_name})]"
     
-    # 2. Hard Crossover (নিশ্চিত ক্রসওভার) লজিক:
-    if prev['OBV'] < prev[f'MA_OBV_{MA_PERIOD}'] and obv_value > ma_value:
-        alert_body = f"🚀 Bullish Crossover (ক্রস আপ)! নিশ্চিত প্রবণতা পরিবর্তন! OBV:{obv_value:,.2f}, MA({MA_PERIOD}):{ma_value:,.2f}"
-        send_pushbullet_notification(f"✅ BUY SIGNAL {alert_title_base}", alert_body)
+    # 2. Hard Crossover (OBV/MA ক্রস)
+    is_bullish_cross = (prev['OBV'] < prev[f'MA_OBV_{MA_PERIOD}'] and obv_value > ma_value)
+    is_bearish_cross = (prev['OBV'] > prev[f'MA_OBV_{MA_PERIOD}'] and obv_value < ma_value)
+    
+    # 3. ADX ফিল্টার চেক (ADX > 25?)
+    is_strong_trend = (adx_value >= ADX_THRESHOLD)
+
+    # A. HIGH-QUALITY SIGNAL (OBV/MA ক্রস AND ADX > 25)
+    if (is_bullish_cross or is_bearish_cross) and is_strong_trend:
+        action = "BUY" if is_bullish_cross else "SELL"
+        signal_type = "Bullish" if is_bullish_cross else "Bearish"
+
+        alert_body = (
+            f"🔥🔥🔥 HIGH CONFIRMATION SIGNAL ({action})! 🔥🔥🔥\n"
+            f"OBV/MA Cross: {signal_type} প্রবণতা শুরু।\n"
+            f"ADX Confirmation: ADX = {adx_value:,.2f} ({ADX_THRESHOLD} এর উপরে)।"
+        )
+        send_pushbullet_notification(f"🌟 HIGH QUALITY {action} {alert_title_base}", alert_body)
         return True
 
-    elif prev['OBV'] > prev[f'MA_OBV_{MA_PERIOD}'] and obv_value < ma_value:
-        alert_body = f"📉 Bearish Crossover (ক্রস ডাউন)! নিশ্চিত প্রবণতা পরিবর্তন! OBV:{obv_value:,.2f}, MA({MA_PERIOD}):{ma_value:,.2f}"
-        send_pushbullet_notification(f"❌ SELL SIGNAL {alert_title_base}", alert_body)
+    # B. REGULAR OBV/MA Crossover (ADX ফিল্টার ছাড়া)
+    elif (is_bullish_cross or is_bearish_cross) and not is_strong_trend:
+        action = "BUY" if is_bullish_cross else "SELL"
+        alert_body = (
+            f"🎯 REGULAR {action} Crossover! (সতর্ক থাকুন, ADX দুর্বল: {adx_value:,.2f})\n"
+            f"OBV:{obv_value:,.2f}, MA({MA_PERIOD}):{ma_value:,.2f}"
+        )
+        send_pushbullet_notification(f"🎯 REGULAR {action} {alert_title_base}", alert_body)
         return True
         
-    # 3. Pre-Cross (সতর্কতা) লজিক:
+    # C. Pre-Cross (সতর্কতা) লজিক: ADX ফিল্টার এখানে প্রযোজ্য নয়
     if abs(ma_value) > 1: 
-        
-        # দূরত্ব গণনা (শতাংশে):
         difference = abs(obv_value - ma_value)
         distance_percent = difference / abs(ma_value)
         
-        # যদি দূরত্ব 0.1% এর মধ্যে থাকে
         if distance_percent <= PRE_CROSS_THRESHOLD:
-            
-            # শুধুমাত্র সতর্কবার্তা পাঠাবে যদি এটি আসল ক্রসওভার না হয়
             alert_body = (
                 f"⚠️ Pre-Cross Warning: OBV MA({MA_PERIOD})-এর খুব কাছাকাছি! দূরত্ব: {distance_percent:.2%}\n"
                 f"OBV:{obv_value:,.2f}, MA({MA_PERIOD}):{ma_value:,.2f}"
@@ -115,7 +164,6 @@ def check_crossover(df, symbol, timeframe, exchange_name):
 
 def main():
     
-    # ব্যবহারের জন্য এক্সচেঞ্জের তালিকা
     EXCHANGES_TO_CHECK = [
         ccxt.mexc(),    
         ccxt.kucoin(), 
@@ -123,7 +171,6 @@ def main():
     
     print(f"ট্রেডিং পেয়ার্স: {SYMBOL_PAIRS}, টাইমফ্রেম: {TIMEFRAMES}")
     
-    # প্রতিটি এক্সচেঞ্জের জন্য ডেটা আনার চেষ্টা করা হবে
     for exchange in EXCHANGES_TO_CHECK:
         exchange_name = exchange.id
         print(f"\n--- {exchange_name.upper()} থেকে ডেটা আনার চেষ্টা ---")
@@ -133,7 +180,6 @@ def main():
             for symbol in SYMBOL_PAIRS:
                 for tf in TIMEFRAMES:
                     try:
-                        # লিমিট=200 ক্যান্ডেল ডেটা নেওয়া হচ্ছে
                         ohlcv = exchange.fetch_ohlcv(symbol, tf, limit=200) 
                         
                         if not ohlcv:
@@ -144,24 +190,22 @@ def main():
                         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
                         
                         df = calculate_obv_ma(df)
+                        # ADX যোগ করা হয়েছে
+                        df = calculate_adx(df) 
                         
-                        # NaN ফিক্স: NaN ভ্যালু বাদ দেওয়া হচ্ছে
                         df.dropna(inplace=True) 
                         
-                        if len(df) < 2:
+                        if len(df) < (ADX_PERIOD * 2):
                             continue
                             
-                        # ক্রসওভার চেক করা
                         check_crossover(df, symbol, tf, exchange_name.upper()) 
                         
                         time.sleep(0.5) 
                         
                     except Exception as e:
-                        # নির্দিষ্ট পেয়ারের ত্রুটি
                         print(f"ডেটা প্রসেসিং বা API কল ত্রুটি ({symbol} {tf} - {exchange_name.upper()}): {e}")
 
         except Exception as e:
-            # এক্সচেঞ্জ স্তরের ত্রুটি
             print(f"এক্সচেঞ্জ কানেকশন ত্রুটি ({exchange_name.upper()}): {e}")
             continue 
             
