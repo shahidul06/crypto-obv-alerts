@@ -5,41 +5,51 @@ import os
 import time
 
 # --- কনফিগারেশন: ইন্ডিকেটর প্যারামিটার ও ট্রেড সেটিংস ---
-PUSHBULLET_TOKEN = os.environ.get('PUSHBULLET_TOKEN')
+
+# PUSHBULLET_TOKEN এর পরিবর্তে TELEGRAM ভ্যারিয়েবল ব্যবহার করা হবে
+TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN')
+TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID')
+
 MA_PERIOD = 50           # OBV Moving Average (EMA) পিরিয়ড
 ADX_PERIOD = 14          # ADX গণনার জন্য পিরিয়ড
 ADX_THRESHOLD = 25       # ADX এই মানের উপরে থাকলে তবেই সিগনাল নিশ্চিত হবে
 
 SYMBOL_PAIRS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT']
-# 5m টাইমফ্রেম বাতিল
 TIMEFRAMES = ['15m', '30m', '1h'] 
 # ----------------------------------------------------
 
-def send_pushbullet_notification(title, body):
-    """Pushbullet এর মাধ্যমে নোটিফিকেশন পাঠানো হয়"""
-    if not PUSHBULLET_TOKEN:
-        print("Pushbullet টোকেন সেট করা নেই। নোটিফিকেশন পাঠানো সম্ভব নয়।")
+def send_telegram_message(title, body):
+    """Telegram Bot এর মাধ্যমে নোটিফিকেশন পাঠানো হয়"""
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        print("Telegram টোকেন বা চ্যাট আইডি সেট করা নেই। নোটিফিকেশন পাঠানো সম্ভব নয়।")
         return
 
-    url = "https://api.pushbullet.com/v2/pushes"
-    headers = {
-        "Access-Token": PUSHBULLET_TOKEN,
-        "Content-Type": "application/json"
-    }
-    data = {
-        "type": "note",
-        "title": title,
-        "body": body
+    # মেসেজের বডি তৈরি করা
+    message_text = f"**{title}**\n\n{body}"
+
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    
+    params = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message_text,
+        "parse_mode": "Markdown" # Markdown ফর্ম্যাটিং ব্যবহার করা হলো
     }
 
     try:
-        response = requests.post(url, headers=headers, json=data)
+        # Telegram API call
+        response = requests.post(url, data=params)
+        
         if response.status_code == 200:
-            print(f"Pushbullet নোটিফিকেশন সফলভাবে পাঠানো হয়েছে: {title}")
+            print(f"Telegram নোটিফিকেশন সফলভাবে পাঠানো হয়েছে: {title}")
         else:
-            print(f"Pushbullet ত্রুটি: স্ট্যাটাস কোড {response.status_code} - বডি: {response.text}")
+            print(f"Telegram ত্রুটি: স্ট্যাটাস কোড {response.status_code} - বডি: {response.text}")
     except Exception as e:
-        print(f"Pushbullet সংযোগ ত্রুটি: {e}")
+        print(f"Telegram সংযোগ ত্রুটি: {e}")
+
+# Pushbullet ফাংশনটি Telegram ফাংশনে প্রতিস্থাপন করা হয়েছে 
+# যাতে check_crossover ফাংশনটিকে পরিবর্তন করতে না হয়।
+send_pushbullet_notification = send_telegram_message
+
 
 def calculate_obv_ma(dataframe):
     """OBV এবং 50 পিরিয়ডের EMA গণনা করে"""
@@ -103,7 +113,6 @@ def check_crossover(df, symbol, timeframe, exchange_name):
     """
     
     if len(df) < (ADX_PERIOD * 2):
-        # ADX এর সঠিক গণনার জন্য পর্যাপ্ত ডেটা নেই।
         return False
         
     last = df.iloc[-1]
@@ -130,9 +139,9 @@ def check_crossover(df, symbol, timeframe, exchange_name):
         signal_type = "Bullish" if is_bullish_cross else "Bearish"
 
         alert_body = (
-            f"🔥🔥🔥 HIGH CONFIRMATION SIGNAL ({action})! 🔥🔥🔥\n"
+            f"🔥🔥🔥 HIGH CONFIRMATION SIGNAL (*{action}*)! 🔥🔥🔥\n"
             f"OBV/MA Cross: {signal_type} প্রবণতা শুরু।\n"
-            f"ADX Confirmation: ADX = {adx_value:,.2f} ({ADX_THRESHOLD} এর উপরে)।"
+            f"ADX Confirmation: ADX = *{adx_value:,.2f}* ({ADX_THRESHOLD} এর উপরে)।"
         )
         send_pushbullet_notification(f"🌟 HIGH QUALITY {action} {alert_title_base}", alert_body)
         return True
@@ -141,7 +150,7 @@ def check_crossover(df, symbol, timeframe, exchange_name):
     elif (is_bullish_cross or is_bearish_cross) and not is_strong_trend:
         action = "BUY" if is_bullish_cross else "SELL"
         alert_body = (
-            f"🎯 REGULAR {action} Crossover! (সতর্ক থাকুন, ADX দুর্বল: {adx_value:,.2f})\n"
+            f"🎯 REGULAR *{action}* Crossover! (সতর্ক থাকুন, ADX দুর্বল: *{adx_value:,.2f}*)\n"
             f"OBV:{obv_value:,.2f}, MA({MA_PERIOD}):{ma_value:,.2f}"
         )
         send_pushbullet_notification(f"🎯 REGULAR {action} {alert_title_base}", alert_body)
@@ -154,7 +163,7 @@ def check_crossover(df, symbol, timeframe, exchange_name):
         
         if distance_percent <= PRE_CROSS_THRESHOLD:
             alert_body = (
-                f"⚠️ Pre-Cross Warning: OBV MA({MA_PERIOD})-এর খুব কাছাকাছি! দূরত্ব: {distance_percent:.2%}\n"
+                f"⚠️ Pre-Cross Warning: OBV MA({MA_PERIOD})-এর খুব কাছাকাছি! দূরত্ব: *{distance_percent:.2%}*\n"
                 f"OBV:{obv_value:,.2f}, MA({MA_PERIOD}):{ma_value:,.2f}"
             )
             send_pushbullet_notification(f"⚠️ PRE-CROSS {alert_title_base}", alert_body)
@@ -190,7 +199,6 @@ def main():
                         df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
                         
                         df = calculate_obv_ma(df)
-                        # ADX যোগ করা হয়েছে
                         df = calculate_adx(df) 
                         
                         df.dropna(inplace=True) 
